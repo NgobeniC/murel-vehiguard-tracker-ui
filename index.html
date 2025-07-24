@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vehicle Tracking System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        .map-container { height: 400px; }
+        .panic-button {
+            animation: pulse 2s infinite;
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .status-moving { color: #10b981; }
+        .status-stopped { color: #f59e0b; }
+        .status-offline { color: #ef4444; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Navigation -->
+    <nav class="bg-blue-900 text-white p-4 shadow-lg">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <h1 class="text-2xl font-bold">🚗 Murel Vehiguard Tracker</h1>
+            <div class="flex space-x-4">
+                <button onclick="showScreen('dashboard')" class="nav-btn bg-blue-700 hover:bg-blue-600 px-4 py-2 rounded-lg transition-colors">Dashboard</button>
+                <button onclick="showScreen('geofencing')" class="nav-btn hover:bg-blue-800 px-4 py-2 rounded-lg transition-colors">Geo-fencing</button>
+                <button onclick="showScreen('panic')" class="nav-btn hover:bg-blue-800 px-4 py-2 rounded-lg transition-colors">Panic</button>
+                <button onclick="showScreen('history')" class="nav-btn hover:bg-blue-800 px-4 py-2 rounded-lg transition-colors">History</button>
+                <button onclick="showScreen('contacts')" class="nav-btn hover:bg-blue-800 px-4 py-2 rounded-lg transition-colors">Contacts</button>
+                <button onclick="showScreen('settings')" class="nav-btn hover:bg-blue-800 px-4 py-2 rounded-lg transition-colors">Settings</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Dashboard Screen -->
+    <div id="dashboard" class="screen max-w-7xl mx-auto p-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <!-- Vehicle Status Cards -->
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-gray-800">Vehicle Status</h3>
+                    <span class="status-moving text-sm font-medium">● MOVING</span>
+                </div>
+                <div class="space-y-3">
+                    <div class="flex justify-between">
+                        <span class="text-gray-600">Speed:</span>
+                        <span class="font-semibold text-blue-600" id="current-speed">45 km/h</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-600">Engine:</span>
+                        <span class="font-semibold text-green-600">ON</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-600">Fuel:</span>
+                        <span class="font-semibold">78%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Location Info -->
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Current Location</h3>
+                <div class="space-y-3">
+                    <div>
+                        <span class="text-gray-600 text-sm">Address:</span>
+                        <p class="font-medium">123 Main Street, Downtown</p>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-600">Coordinates:</span>
+                        <span class="font-mono text-sm">40.7128, -74.0060</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-600">Last Update:</span>
+                        <span class="text-sm" id="last-update">2 seconds ago</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Quick Actions</h3>
+                <div class="space-y-3">
+                    <button onclick="showScreen('panic')" class="w-full bg-red-500 hover:bg-red-600 text-white py-3 px-4 rounded-lg font-semibold transition-colors">
+                        🚨 Emergency Panic
+                    </button>
+                    <button onclick="toggleSilentMode()" class="w-full bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded-lg transition-colors">
+                        🔇 Silent Mode: <span id="silent-status">OFF</span>
+                    </button>
+                    <button onclick="refreshLocation()" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg transition-colors">
+                        🔄 Refresh Location
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Map -->
+        <div class="bg-white rounded-xl shadow-lg p-6">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">Live Vehicle Location</h3>
+            <div id="dashboard-map" class="map-container rounded-lg"></div>
+        </div>
+    </div>
+
+    <!-- Geo-fencing Screen -->
+    <div id="geofencing" class="screen hidden max-w-7xl mx-auto p-6">
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">Geo-fencing Setup</h2>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Zone Controls -->
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Zone Name</label>
+                        <input type="text" id="zone-name" placeholder="e.g., Home, Office" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Radius (meters)</label>
+                        <input type="range" id="radius-slider" min="50" max="2000" value="500" class="w-full">
+                        <div class="flex justify-between text-sm text-gray-500">
+                            <span>50m</span>
+                            <span id="radius-value">500m</span>
+                            <span>2000m</span>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Alert Type</label>
+                        <select id="alert-type" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="enter">Alert when entering</option>
+                            <option value="exit">Alert when exiting</option>
+                            <option value="both">Alert for both</option>
+                        </select>
+                    </div>
+                    
+                    <button onclick="createGeofence()" class="w-full bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded-lg font-semibold transition-colors">
+                        Create Geo-fence
+                    </button>
+                </div>
+                
+                <!-- Map -->
+                <div class="lg:col-span-2">
+                    <div id="geofence-map" class="map-container rounded-lg"></div>
+                    <p class="text-sm text-gray-600 mt-2">Click on the map to set the center of your geo-fence zone</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Active Zones -->
+        <div class="bg-white rounded-xl shadow-lg p-6">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">Active Geo-fences</h3>
+            <div id="active-zones" class="space-y-3">
+                <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div>
+                        <h4 class="font-medium">Home Zone</h4>
+                        <p class="text-sm text-gray-600">Radius: 300m • Alert on exit</p>
+                    </div>
+                    <button onclick="deleteZone('home')" class="text-red-500 hover:text-red-700 font-medium">Delete</button>
+                </div>
+                <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div>
+                        <h4 class="font-medium">Office Zone</h4>
+                        <p class="text-sm text-gray-600">Radius: 150m • Alert on both</p>
+                    </div>
+                    <button onclick="deleteZone('office')" class="text-red-500 hover:text-red-700 font-medium">Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Panic Button Screen -->
+    <div id="panic" class="screen hidden max-w-4xl mx-auto p-6">
+        <div class="bg-white rounded-xl shadow-lg p-8 text-center">
+            <h2 class="text-3xl font-bold text-gray-800 mb-8">Emergency Panic System</h2>
+            
+            <div class="mb-8">
+                <button id="panic-btn" onclick="showPanicConfirm()" class="panic-button bg-red-500 hover:bg-red-600 text-white text-2xl font-bold py-8 px-12 rounded-full transition-all duration-300">
+                    🚨 PANIC BUTTON 🚨
+                </button>
+                <p class="text-gray-600 mt-4">Press in case of emergency</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
+                <div class="bg-red-50 p-6 rounded-lg">
+                    <h3 class="font-semibold text-red-800 mb-3">When activated, this will:</h3>
+                    <ul class="space-y-2 text-red-700">
+                        <li>• Send SMS alerts to emergency contacts</li>
+                        <li>• Share live location via WhatsApp</li>
+                        <li>• Start continuous location tracking</li>
+                        <li>• Activate silent mode automatically</li>
+                    </ul>
+                </div>
+                
+                <div class="bg-blue-50 p-6 rounded-lg">
+                    <h3 class="font-semibold text-blue-800 mb-3">Emergency Contacts:</h3>
+                    <div class="space-y-2 text-blue-700">
+                        <div>👤 John Doe: +1-555-0123</div>
+                        <div>👤 Jane Smith: +1-555-0456</div>
+                        <div>🚔 Police: 911</div>
+                    </div>
+                    <button onclick="showScreen('contacts')" class="text-blue-600 hover:text-blue-800 text-sm mt-2">Edit contacts →</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Panic Confirmation Modal -->
+        <div id="panic-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white rounded-xl p-8 max-w-md mx-4">
+                <h3 class="text-xl font-bold text-red-600 mb-4">⚠️ Confirm Emergency Alert</h3>
+                <p class="text-gray-700 mb-6">This will immediately send emergency alerts to all your contacts. Are you sure?</p>
+                <div class="flex space-x-4">
+                    <button onclick="activatePanic()" class="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 px-4 rounded-lg font-semibold">
+                        YES, SEND ALERT
+                    </button>
+                    <button onclick="hidePanicConfirm()" class="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-3 px-4 rounded-lg font-semibold">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trip History Screen -->
+    <div id="history" class="screen hidden max-w-7xl mx-auto p-6">
+        <div class="bg-white rounded-xl shadow-lg p-6">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold text-gray-800">Trip History</h2>
+                <div class="flex space-x-4">
+                    <select class="px-3 py-2 border border-gray-300 rounded-lg">
+                        <option>Last 7 days</option>
+                        <option>Last 30 days</option>
+                        <option>Last 3 months</option>
+                    </select>
+                    <button class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">Export</button>
+                </div>
+            </div>
+
+            <!-- Trip Statistics -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-blue-50 p-4 rounded-lg text-center">
+                    <div class="text-2xl font-bold text-blue-600">47</div>
+                    <div class="text-sm text-blue-800">Total Trips</div>
+                </div>
+                <div class="bg-green-50 p-4 rounded-lg text-center">
+                    <div class="text-2xl font-bold text-green-600">1,247 km</div>
+                    <div class="text-sm text-green-800">Distance</div>
+                </div>
+                <div class="bg-yellow-50 p-4 rounded-lg text-center">
+                    <div class="text-2xl font-bold text-yellow-600">32h 15m</div>
+                    <div class="text-sm text-yellow-800">Drive Time</div>
+                </div>
+                <div class="bg-purple-50 p-4 rounded-lg text-center">
+                    <div class="text-2xl font-bold text-purple-600">65 km/h</div>
+                    <div class="text-sm text-purple-800">Avg Speed</div>
+                </div>
+            </div>
+
+            <!-- Trip List -->
+            <div class="space-y-4" id="trip-list">
+                <div class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 cursor-pointer" onclick="showTripDetails('trip1')">
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-2 mb-2">
+                                <span class="text-lg">🚗</span>
+                                <h3 class="font-semibold">Home → Downtown Office</h3>
+                                <span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">Completed</span>
+                            </div>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600">
+                                <div>📅 Today, 8:30 AM</div>
+                                <div>📏 12.5 km</div>
+                                <div>⏱️ 25 minutes</div>
+                                <div>🏃 Avg: 52 km/h</div>
+                            </div>
+                        </div>
+                        <button class="text-blue-500 hover:text-blue-700 text-sm">View Route →</button>
+                    </div>
+                </div>
+
+                <div class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 cursor-pointer" onclick="showTripDetails('trip2')">
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-2 mb-2">
+                                <span class="text-lg">🚗</span>
+                                <h3 class="font-semibold">Downtown Office → Shopping Mall</h3>
+                                <span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">Completed</span>
+                            </div>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600">
+                                <div>📅 Yesterday, 6:15 PM</div>
+                                <div>📏 8.2 km</div>
+                                <div>⏱️ 18 minutes</div>
+                                <div>🏃 Avg: 47 km/h</div>
+                            </div>
+                        </div>
+                        <button class="text-blue-500 hover:text-blue-700 text-sm">View Route →</button>
+                    </div>
+                </div>
+
+                <div class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 cursor-pointer" onclick="showTripDetails('trip3')">
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-2 mb-2">
+                                <span class="text-lg">🚗</span>
+                                <h3 class="font-semibold">Home → Airport</h3>
+                                <span class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">Long Trip</span>
+                            </div>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600">
+                                <div>📅 Dec 15, 5:45 AM</div>
+                                <div>📏 45.7 km</div>
+                                <div>⏱️ 1h 12m</div>
+                                <div>🏃 Avg: 68 km/h</div>
+                            </div>
+                        </div>
+                        <button class="text-blue-500 hover:text-blue-700 text-sm">View Route →</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Emergency Contacts Screen -->
+    <div id="contacts" class="screen hidden max-w-4xl mx-auto p-6">
+        <div class="bg-white rounded-xl shadow-lg p-6">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">Emergency Contacts</h2>
+            
+            <!-- Add New Contact Form -->
+            <div class="bg-blue-50 rounded-lg p-6 mb-6">
+                <h3 class="text-lg font-semibold text-blue-800 mb-4">Add New Contact</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
+                        <input type="text" id="contact-name" placeholder="John Doe" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
+                        <input type="tel" id="contact-phone" placeholder="+1-555-0123" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Relationship</label>
+                        <select id="contact-relationship" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="family">Family Member</option>
+                            <option value="friend">Friend</option>
+                            <option value="colleague">Colleague</option>
+                            <option value="emergency">Emergency Service</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Preferred Contact</label>
+                        <select id="contact-method" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="sms">SMS</option>
+                            <option value="whatsapp">WhatsApp</option>
+                            <option value="both">Both SMS & WhatsApp</option>
+                        </select>
+                    </div>
+                </div>
+                <button onclick="addContact()" class="mt-4 bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold transition-colors">
+                    Add Contact
+                </button>
+            </div>
+
+            <!-- Existing Contacts -->
+            <div>
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Current Emergency Contacts</h3>
+                <div class="space-y-4" id="contacts-list">
+                    <div class="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                        <div class="flex items-center space-x-4">
+                            <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold">
+                                JD
+                            </div>
+                            <div>
+                                <h4 class="font-semibold">John Doe</h4>
+                                <p class="text-sm text-gray-600">+1-555-0123 • Family Member</p>
+                                <p class="text-xs text-blue-600">SMS & WhatsApp</p>
+                            </div>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button onclick="editContact('john')" class="text-blue-500 hover:text-blue-700 px-3 py-1 rounded">Edit</button>
+                            <button onclick="deleteContact('john')" class="text-red-500 hover:text-red-700 px-3 py-1 rounded">Delete</button>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                        <div class="flex items-center space-x-4">
+                            <div class="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center text-white font-semibold">
+                                JS
+                            </div>
+                            <div>
+                                <h4 class="font-semibold">Jane Smith</h4>
+                                <p class="text-sm text-gray-600">+1-555-0456 • Friend</p>
+                                <p class="text-xs text-blue-600">WhatsApp only</p>
+                            </div>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button onclick="editContact('jane')" class="text-blue-500 hover:text-blue-700 px-3 py-1 rounded">Edit</button>
+                            <button onclick="deleteContact('jane')" class="text-red-500 hover:text-red-700 px-3 py-1 rounded">Delete</button>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                        <div class="flex items-center space-x-4">
+                            <div class="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center text-white font-semibold">
+                                🚔
+                            </div>
+                            <div>
+                                <h4 class="font-semibold">Emergency Services</h4>
+                                <p class="text-sm text-gray-600">911 • Emergency Service</p>
+                                <p class="text-xs text-blue-600">SMS only</p>
+                            </div>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button onclick="editContact('police')" class="text-blue-500 hover:text-blue-700 px-3 py-1 rounded">Edit</button>
+                            <button onclick="deleteContact('police')" class="text-red-500 hover:text-red-700 px-3 py-1 rounded">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Screen -->
+    <div id="settings" class="screen hidden max-w-4xl mx-auto p-6">
+        <div class="bg-white rounded-xl shadow-lg p-6">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">Settings</h2>
+            
+            <!-- Silent Mode Settings -->
+            <div class="mb-8">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Silent Mode (Hijack Simulation)</h3>
+                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                    <div class="flex items-center space-x-2 mb-2">
+                        <span class="text-yellow-600">⚠️</span>
+                        <span class="font-medium text-yellow-800">Silent Mode is currently: <span id="silent-mode-status">OFF</span></span>
+                    </div>
+                    <p class="text-sm text-yellow-700">When enabled, the app appears normal but secretly tracks location and sends alerts.</p>
+                </div>
+                
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                        <div>
+                            <h4 class="font-medium">Enable Silent Mode</h4>
+                            <p class="text-sm text-gray-600">Activate hijack simulation mode</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="silent-toggle" class="sr-only peer" onchange="toggleSilentMode()">
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+                    
+                    <div class="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                        <div>
+                            <h4 class="font-medium">Silent Alert Frequency</h4>
+                            <p class="text-sm text-gray-600">How often to send location updates in silent mode</p>
+                        </div>
+                        <select class="px-3 py-2 border border-gray-300 rounded-lg">
+                            <option>Every 30 seconds</option>
+                            <option>Every 1 minute</option>
+                            <option>Every 2 minutes</option>
+                            <option>Every 5 minutes</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- General Settings -->
+            <div class="mb-8">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">General Settings</h3>
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                        <div>
+                            <h4 class="font-medium">Location Update Frequency</h4>
+                            <p class="text-sm text-gray-600">How often to update vehicle location</p>
+                        </div>
+                        <select class="px-3 py-2 border border-gray-300 rounded-lg">
+                            <option>Real-time (5 seconds)</option>
+                            <option>Every 10 seconds</option>
+                            <option>Every 30 seconds</option>
+                            <option>Every 1 minute</option>
+                        </select>
+                    </div>
+                    
+                    <div class="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                        <div>
+                            <h4 class="font-medium">Speed Alerts</h4>
+                            <p class="text-sm text-gray-600">Get notified when speed limit is exceeded</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" class="sr-only peer" checked>
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+                    
+                    <div class="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                        <div>
+                            <h4 class="font-medium">Speed Limit Threshold</h4>
+                            <p class="text-sm text-gray-600">Alert when exceeding this speed</p>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <input type="number" value="80" class="w-16 px-2 py-1 border border-gray-300 rounded text-center">
+                            <span class="text-sm text-gray-600">km/h</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Data & Privacy -->
+            <div>
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Data & Privacy</h3>
+                <div class="space-y-4">
+                    <button class="w-full text-left p-4 border border-gray-200 rounded-lg hover:bg-gray-50">
+                        <h4 class="font-medium">Export Trip Data</h4>
+                        <p class="text-sm text-gray-600">Download all your trip history and data</p>
+                    </button>
+                    
+                    <button class="w-full text-left p-4 border border-red-200 rounded-lg hover:bg-red-50 text-red-600">
+                        <h4 class="font-medium">Clear All Data</h4>
+                        <p class="text-sm text-red-500">Permanently delete all trips and settings</p>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let dashboardMap, geofenceMap;
+        let currentGeofenceCircle = null;
+        let silentMode = false;
+        let panicActive = false;
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', function() {
+            showScreen('dashboard');
+            initializeMaps();
+            updateLastUpdateTime();
+            updateSpeedSimulation();
+        });
+
+        // Screen navigation
+        function showScreen(screenName) {
+            // Hide all screens
+            document.querySelectorAll('.screen').forEach(screen => {
+                screen.classList.add('hidden');
+            });
+            
+            // Show selected screen
+            document.getElementById(screenName).classList.remove('hidden');
+            
+            // Update navigation buttons
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('bg-blue-700');
+                btn.classList.add('hover:bg-blue-800');
+            });
+            
+            event.target.classList.add('bg-blue-700');
+            event.target.classList.remove('hover:bg-blue-800');
+            
+            // Initialize maps when needed
+            if (screenName === 'dashboard' && dashboardMap) {
+                setTimeout(() => dashboardMap.invalidateSize(), 100);
+            } else if (screenName === 'geofencing' && geofenceMap) {
+                setTimeout(() => geofenceMap.invalidateSize(), 100);
+            }
+        }
+
+        // Initialize maps
+        function initializeMaps() {
+            // Dashboard map
+            dashboardMap = L.map('dashboard-map').setView([40.7128, -74.0060], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(dashboardMap);
+            
+            // Add vehicle marker
+            const vehicleIcon = L.divIcon({
+                html: '<div style="background: #3b82f6; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 12px;">🚗</div>',
+                iconSize: [20, 20],
+                className: 'custom-div-icon'
+            });
+            
+            L.marker([40.7128, -74.0060], {icon: vehicleIcon}).addTo(dashboardMap)
+                .bindPopup('Current Vehicle Location<br>Speed: 45 km/h<br>Status: Moving');
+
+            // Geofence map
+            geofenceMap = L.map('geofence-map').setView([40.7128, -74.0060], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(geofenceMap);
+            
+            // Add click handler for geofence creation
+            geofenceMap.on('click', function(e) {
+                if (currentGeofenceCircle) {
+                    geofenceMap.removeLayer(currentGeofenceCircle);
+                }
+                
+                const radius = document.getElementById('radius-slider').value;
+                currentGeofenceCircle = L.circle(e.latlng, {
+                    color: '#3b82f6',
+                    fillColor: '#3b82f6',
+                    fillOpacity: 0.2,
+                    radius: radius
+                }).addTo(geofenceMap);
+            });
+
+            // Update radius display
+            document.getElementById('radius-slider').addEventListener('input', function(e) {
+                document.getElementById('radius-value').textContent = e.target.value + 'm';
+                
+                if (currentGeofenceCircle) {
+                    currentGeofenceCircle.setRadius(e.target.value);
+                }
+            });
+        }
+
+        // Geofencing functions
+        function createGeofence() {
+            const name = document.getElementById('zone-name').value;
+            const radius = document.getElementById('radius-slider').value;
+            const alertType = document.getElementById('alert-type').value;
+            
+            if (!name || !currentGeofenceCircle) {
+                alert('Please enter a zone name and click on the map to set location');
+                return;
+            }
+            
+            // Add to active zones (in real app, this would save to database)
+            const activeZones = document.getElementById('active-zones');
+            const zoneDiv = document.createElement('div');
+            zoneDiv.className = 'flex items-center justify-between p-4 bg-gray-50 rounded-lg';
+            zoneDiv.innerHTML = `
+                <div>
+                    <h4 class="font-medium">${name}</h4>
+                    <p class="text-sm text-gray-600">Radius: ${radius}m • Alert on ${alertType}</p>
+                </div>
+                <button onclick="this.parentElement.parentElement.remove()" class="text-red-500 hover:text-red-700 font-medium">Delete</button>
+            `;
+            activeZones.appendChild(zoneDiv);
+            
+            // Clear form
+            document.getElementById('zone-name').value = '';
+            document.getElementById('radius-slider').value = 500;
+            document.getElementById('radius-value').textContent = '500m';
+            
+            alert(`Geo-fence "${name}" created successfully!`);
+        }
+
+        function deleteZone(zoneName) {
+            if (confirm(`Are you sure you want to delete the ${zoneName} zone?`)) {
+                // In real app, this would delete from database
+                alert(`${zoneName} zone deleted`);
+            }
+        }
+
+        // Panic button functions
+        function showPanicConfirm() {
+            document.getElementById('panic-modal').classList.remove('hidden');
+        }
+
+        function hidePanicConfirm() {
+            document.getElementById('panic-modal').classList.add('hidden');
+        }
+
+        function activatePanic() {
+            panicActive = true;
+            silentMode = true;
+            
+            // Hide modal
+            hidePanicConfirm();
+            
+            // Show activation feedback
+            alert('🚨 EMERGENCY ALERT ACTIVATED!\n\n• SMS sent to all emergency contacts\n• Live location sharing started\n• Silent mode activated\n• Continuous tracking enabled');
+            
+            // Update UI
+            document.getElementById('silent-status').textContent = 'ON';
+            document.getElementById('silent-mode-status').textContent = 'ON';
+            document.getElementById('silent-toggle').checked = true;
+            
+            // In real app, this would:
+            // - Send SMS/WhatsApp to emergency contacts
+            // - Start continuous location tracking
+            // - Log the emergency event
+        }
+
+        // Silent mode functions
+        function toggleSilentMode() {
+            silentMode = !silentMode;
+            document.getElementById('silent-status').textContent = silentMode ? 'ON' : 'OFF';
+            document.getElementById('silent-mode-status').textContent = silentMode ? 'ON' : 'OFF';
+            document.getElementById('silent-toggle').checked = silentMode;
+            
+            if (silentMode) {
+                alert('Silent mode activated. App will appear normal but continue tracking.');
+            } else {
+                alert('Silent mode deactivated.');
+            }
+        }
+
+        // Contact management
+        function addContact() {
+            const name = document.getElementById('contact-name').value;
+            const phone = document.getElementById('contact-phone').value;
+            const relationship = document.getElementById('contact-relationship').value;
+            const method = document.getElementById('contact-method').value;
+            
+            if (!name || !phone) {
+                alert('Please fill in name and phone number');
+                return;
+            }
+            
+            // Create contact element
+            const contactsList = document.getElementById('contacts-list');
+            const contactDiv = document.createElement('div');
+            contactDiv.className = 'flex items-center justify-between p-4 border border-gray-200 rounded-lg';
+            
+            const initials = name.split(' ').map(n => n[0]).join('').toUpperCase();
+            const colors = ['bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-red-500', 'bg-yellow-500'];
+            const randomColor = colors[Math.floor(Math.random() * colors.length)];
+            
+            contactDiv.innerHTML = `
+                <div class="flex items-center space-x-4">
+                    <div class="w-12 h-12 ${randomColor} rounded-full flex items-center justify-center text-white font-semibold">
+                        ${initials}
+                    </div>
+                    <div>
+                        <h4 class="font-semibold">${name}</h4>
+                        <p class="text-sm text-gray-600">${phone} • ${relationship}</p>
+                        <p class="text-xs text-blue-600">${method}</p>
+                    </div>
+                </div>
+                <div class="flex space-x-2">
+                    <button onclick="editContact('${name.toLowerCase()}')" class="text-blue-500 hover:text-blue-700 px-3 py-1 rounded">Edit</button>
+                    <button onclick="deleteContact('${name.toLowerCase()}')" class="text-red-500 hover:text-red-700 px-3 py-1 rounded">Delete</button>
+                </div>
+            `;
+            
+            contactsList.appendChild(contactDiv);
+            
+            // Clear form
+            document.getElementById('contact-name').value = '';
+            document.getElementById('contact-phone').value = '';
+            
+            alert(`Contact "${name}" added successfully!`);
+        }
+
+        function editContact(contactId) {
+            alert(`Edit functionality for ${contactId} would open a form with current details`);
+        }
+
+        function deleteContact(contactId) {
+            if (confirm(`Are you sure you want to delete this contact?`)) {
+                // In real app, this would delete from database
+                alert(`Contact deleted`);
+            }
+        }
+
+        // Trip history functions
+        function showTripDetails(tripId) {
+            alert(`Trip details for ${tripId} would show detailed route map, stops, speed chart, etc.`);
+        }
+
+        // Utility functions
+        function refreshLocation() {
+            // Simulate location refresh
+            const speeds = [42, 45, 48, 51, 44, 47];
+            const newSpeed = speeds[Math.floor(Math.random() * speeds.length)];
+            document.getElementById('current-speed').textContent = newSpeed + ' km/h';
+            document.getElementById('last-update').textContent = 'Just now';
+            
+            // Add a brief loading state
+            const btn = event.target;
+            const originalText = btn.textContent;
+            btn.textContent = '🔄 Refreshing...';
+            btn.disabled = true;
+            
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }, 1000);
+        }
+
+        function updateLastUpdateTime() {
+            const updateElement = document.getElementById('last-update');
+            let seconds = 2;
+            
+            setInterval(() => {
+                seconds += 5;
+                if (seconds < 60) {
+                    updateElement.textContent = `${seconds} seconds ago`;
+                } else {
+                    const minutes = Math.floor(seconds / 60);
+                    updateElement.textContent = `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+                }
+            }, 5000);
+        }
+
+        function updateSpeedSimulation() {
+            const speedElement = document.getElementById('current-speed');
+            const speeds = [42, 45, 48, 51, 44, 47, 49, 43, 46, 50];
+            let index = 0;
+            
+            setInterval(() => {
+                speedElement.textContent = speeds[index] + ' km/h';
+                index = (index + 1) % speeds.length;
+            }, 3000);
+        }
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9646a8fa65ecf712',t:'MTc1MzM5NDEwOS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
